@@ -7,14 +7,42 @@ pipeline {
         stage('Pre-Build Stage') {
             steps{
                 script{
-                    def remoteScript1 ='''
+                    def script1 ='''
                         rm -rf spring-api
-                        mkdir -p gradle_dependency
                         mkdir -p spring-api
                         git clone --depth=1 --branch=main https://github.com/DeepakGupta007/SpringBoot-API.git spring-api/
                     '''
                     
-                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${remoteScript1}'"
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script1}'"
+                }
+            }
+        }
+        stage('Build Stage') {
+            steps{
+                script{
+                    def script1 = '''
+                        docker run --rm -v $PWD/spring-api:/app -v gradle-caches:/root/.gradle gradle:jdk11 sh -c "
+                            groupadd -g 1001 jenkinsuser && \
+                            useradd -u 1001 -g jenkinsuser -s /bin/bash -m jenkinsuser && \
+                            cd /app/  && \
+                            chmod +x ./gradlew && \
+                            ./gradlew build -x test && \
+                            chown -R jenkinsuser:jenkinsuser /app"
+                        '''
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script1}'"
+
+                    def script2 = '''
+                        cd spring-api
+                        echo "
+                            FROM adoptopenjdk:11-jre-hotspot
+                            WORKDIR /app
+                            COPY  ./build/libs/*.jar app.jar
+                            CMD java -jar /app/app.jar
+                        " > Dockerfile
+                        docker build -t spring-api:latest .
+                        '''
+
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script2}'"
                 }
             }
         }
