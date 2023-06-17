@@ -1,0 +1,22 @@
+def privateKeyPath = '/var/jenkins_home/.ssh/swarm_node_from_jenkins'
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Pre-Build Stage') {
+            steps{
+                script{
+                    def remoteScript1 ='''
+                        rm -rf spring-api
+                        mkdir -p gradle_dependency
+                        mkdir -p spring-api
+                        git clone --depth=1 --branch=main https://github.com/DeepakGupta007/SpringBoot-API.git spring-api/
+                    '''
+                    
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${remoteScript1}'"
+                }
+            }
+        }
+    }
+}
