@@ -1,5 +1,8 @@
 def privateKeyPath = '/var/jenkins_home/.ssh/swarm_node_from_jenkins'
-
+def GCPKeyPath = '/var/jenkins_home/gcpcreds/key.json'
+def remoteServer = 'jenkinsuser@172.31.35.59'
+def GCPRepository = 'asia-south1-docker.pkg.dev/dev-ops-learning-390117/my-repository'
+def applicationName = "spring-api"
 pipeline {
     agent any
 
@@ -7,42 +10,56 @@ pipeline {
         stage('Pre-Build Stage') {
             steps{
                 script{
-                    def script1 ='''
-                        rm -rf spring-api
-                        mkdir -p spring-api
-                        git clone --depth=1 --branch=main https://github.com/DeepakGupta007/SpringBoot-API.git spring-api/
-                    '''
+                    def script1 ="""
+                        rm -rf ${applicationName}
+                        mkdir -p ${applicationName}
+                        git clone --depth=1 --branch=main https://github.com/DeepakGupta007/SpringBoot-API.git ${applicationName}/
+                    """
                     
-                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script1}'"
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} ${remoteServer} '${script1}'"
                 }
             }
         }
         stage('Build Stage') {
             steps{
                 script{
-                    def script1 = '''
-                        docker run --rm -v $PWD/spring-api:/app -v gradle-caches:/root/.gradle gradle:jdk11 sh -c "
+                    def script1 = """
+                        docker run --rm -v \$PWD/${applicationName}:/app -v gradle-caches:/root/.gradle gradle:jdk11 sh -c "
                             groupadd -g 1001 jenkinsuser && \
                             useradd -u 1001 -g jenkinsuser -s /bin/bash -m jenkinsuser && \
                             cd /app/  && \
                             chmod +x ./gradlew && \
                             ./gradlew build -x test && \
                             chown -R jenkinsuser:jenkinsuser /app"
-                        '''
-                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script1}'"
+                        """
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} ${remoteServer} '${script1}'"
 
-                    def script2 = '''
-                        cd spring-api
+                    def script2 = """
+                        cd ${applicationName}
                         echo "
                             FROM adoptopenjdk:11-jre-hotspot
                             WORKDIR /app
                             COPY  ./build/libs/*.jar app.jar
                             CMD java -jar /app/app.jar
                         " > Dockerfile
-                        docker build -t spring-api:latest .
-                        '''
+                        docker build -t ${GCPRepository}/${applicationName}:${env.BUILD_NUMBER} .
+                        """
 
-                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} jenkinsuser@172.31.35.59 '${script2}'"
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} ${remoteServer} '${script2}'"
+                }
+            }
+        }
+        stage('Image Upload Stage') {
+            steps{
+                script{
+                    def script1 = """
+                        cat key.json | docker login -u _json_key --password-stdin https://${GCPRepository}
+                        #docker push ${GCPRepository}/${applicationName}:${env.BUILD_NUMBER}
+                        docker logout https://${GCPRepository}
+                        shred -un 10 key.json
+                        """
+                    sh "scp -i ${privateKeyPath} ${GCPKeyPath} ${remoteServer}:~/key.json"
+                    sh "ssh -o StrictHostKeyChecking=no -i ${privateKeyPath} ${remoteServer} '${script1}'"
                 }
             }
         }
